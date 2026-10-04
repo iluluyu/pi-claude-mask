@@ -39,6 +39,7 @@ const PROVIDER_ID = /^[A-Za-z0-9._-]+$/;
 const VERSION_RE = /^(\d+\.\d+\.\d+)$/;
 let pinnedCcVersion: string | undefined;
 let versionProbe: { key: string; version: string } | undefined;
+let detectedClaude: { bin: string; resolved: string; version: string } | undefined;
 
 function parseExactVersion(value: string | undefined): string | undefined {
 	const trimmed = value?.trim();
@@ -46,23 +47,40 @@ function parseExactVersion(value: string | undefined): string | undefined {
 }
 
 /** Follow the local claude install. The official layout is a symlink whose target name is the version. */
+function claudeBinary(): string {
+	if (detectedClaude) {
+		try {
+			const resolved = fs.realpathSync(detectedClaude.bin);
+			if (resolved === detectedClaude.resolved) return detectedClaude.bin;
+		} catch {
+			detectedClaude = undefined;
+		}
+	}
+	return execFileSync("which", ["claude"], { encoding: "utf8", timeout: 2000 }).trim();
+}
+
 function detectClaudeVersion(): string {
 	try {
-		const which = execFileSync("which", ["claude"], { encoding: "utf8", timeout: 2000 }).trim();
-		const resolved = fs.realpathSync(which);
+		const bin = claudeBinary();
+		const resolved = fs.realpathSync(bin);
+		if (detectedClaude?.resolved === resolved) return detectedClaude.version;
 		const fromName = parseExactVersion(basename(resolved));
-		if (fromName) return fromName;
+		if (fromName) {
+			detectedClaude = { bin, resolved, version: fromName };
+			return fromName;
+		}
 		const stamp = fs.statSync(resolved).mtimeMs;
 		const key = `${resolved}:${stamp}`;
 		if (versionProbe?.key === key) return versionProbe.version;
-		const out = execFileSync(which, ["--version"], { encoding: "utf8", timeout: 5000 });
+		const out = execFileSync(bin, ["--version"], { encoding: "utf8", timeout: 5000 });
 		const found = out.match(/(\d+\.\d+\.\d+)/);
 		if (found) {
 			versionProbe = { key, version: found[1] };
+			detectedClaude = { bin, resolved, version: found[1] };
 			return found[1];
 		}
 	} catch {
-		// no local claude binary; the fallback is the last version that passed a gateway check
+		detectedClaude = undefined;
 	}
 	return FALLBACK_CC_VERSION;
 }
