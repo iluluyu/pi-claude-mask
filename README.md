@@ -32,9 +32,7 @@ pi install git:github.com/iluluyu/pi-claude-mask
 /claude-mask
 ```
 
-列出所有 Anthropic Messages 类型的提供商，`[x]` 表示已启用伪装。选择后按 Done 立即保存并生效，按 Esc 取消。
-
-状态栏会显示 `mask: <提供商名>` 或 `mask: off`。
+先选 `Providers` 勾选提供商，再选 `Version` 查看或固定版本。Done 保存提供商并立刻生效，Esc 取消。版本是本机客户端指纹，所有已选提供商共用，不按提供商分开。
 
 ### 配置文件
 
@@ -62,7 +60,7 @@ pi install git:github.com/iluluyu/pi-claude-mask
 
 默认自动跟随本机 `claude`。官方安装是一个指向版本目录的符号链接，扩展每次请求都会读它，所以升级 Claude Code 后不用改环境变量，也不用重启 Pi。
 
-要固定版本，在 `/claude-mask` 里选 `Version`，输入 `2.1.288` 这样的号。留空则回到自动。也可以在配置里写 `"ccVersion": "2.1.288"`。`PI_CLAUDE_MASK_CC_VERSION` 仍可用，但只在没有 `ccVersion` 时生效。
+要固定版本，在 `/claude-mask` 的第一级选 `Version`，输入 `2.1.288` 这样的号。留空则回到自动。也可以在配置里写 `"ccVersion": "2.1.288"`。`PI_CLAUDE_MASK_CC_VERSION` 仍可用，但只在没有 `ccVersion` 时生效。
 
 ## 自动重试
 

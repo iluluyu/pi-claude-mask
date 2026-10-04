@@ -32,9 +32,7 @@ Inside Pi, run:
 /claude-mask
 ```
 
-This lists all Anthropic Messages providers. `[x]` means masked. Hit Done to save and apply immediately; Esc to cancel.
-
-The status line shows `mask: <provider>` or `mask: off`.
+Choose `Providers` to toggle providers, then `Version` to inspect or pin the client version. Done saves the provider list and applies it immediately. Esc cancels. The version is the local client fingerprint and is shared by every selected provider.
 
 ### Config File
 
@@ -62,7 +60,7 @@ Deleting a provider's device ID file invalidates that provider's prompt-cache pr
 
 By default the extension follows the local `claude` binary. The official install is a symlink whose target name is the version, and that path is read on each request, so upgrading Claude Code does not require an environment variable or a Pi restart.
 
-To pin a version, choose `Version` in `/claude-mask` and enter a value such as `2.1.288`. Leave it empty to return to automatic. You can also set `"ccVersion": "2.1.288"` in the config file. `PI_CLAUDE_MASK_CC_VERSION` still works, but only when `ccVersion` is unset.
+To pin a version, choose `Version` on the first `/claude-mask` screen and enter a value such as `2.1.288`. Leave it empty to return to automatic. You can also set `"ccVersion": "2.1.288"` in the config file. `PI_CLAUDE_MASK_CC_VERSION` still works, but only when `ccVersion` is unset.
 
 ## Auto-Retry
 

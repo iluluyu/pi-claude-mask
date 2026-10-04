@@ -441,11 +441,6 @@ function streamAsClaudeCode(
 
 const activeProviders = new Set<string>();
 
-function scopeLabel(providers: Iterable<string>): string {
-	const names = [...providers].sort();
-	return names.length === 0 ? "mask: off" : `mask: ${names.join(", ")}`;
-}
-
 function registerMask(pi: ExtensionAPI, provider: string): void {
 	const deviceId = loadDeviceId(provider);
 	pi.registerProvider(provider, {
@@ -476,63 +471,77 @@ function anthropicProviderIds(models: readonly { provider: string; api: string }
 	return [...ids].filter((id) => PROVIDER_ID.test(id)).sort();
 }
 
+async function editProviders(
+	ctx: { ui: { select(title: string, options: string[]): Promise<string | undefined> }; modelRegistry: { getAll(): readonly { provider: string; api: string }[] } },
+	selected: Set<string>,
+): Promise<void> {
+	for (;;) {
+		const providers = anthropicProviderIds(ctx.modelRegistry.getAll());
+		const choice = await ctx.ui.select(
+			"Toggle a provider. Back returns without closing the command.",
+			[...providers.map((id) => `${selected.has(id) ? "[x]" : "[ ]"} ${id}`), "Back"],
+		);
+		if (!choice || choice === "Back") return;
+		const id = choice.replace(/^\[[ x]\] /, "");
+		if (!PROVIDER_ID.test(id)) continue;
+		if (selected.has(id)) selected.delete(id);
+		else selected.add(id);
+	}
+}
+
+async function editVersion(ctx: {
+	ui: {
+		input(title: string, placeholder?: string): Promise<string | undefined>;
+		notify(message: string, type?: "info" | "warning" | "error"): void;
+	};
+}): Promise<void> {
+	const entered = await ctx.ui.input(
+		"Claude Code version. Leave empty to follow the local claude binary.",
+		pinnedCcVersion ?? "",
+	);
+	if (entered === undefined) return;
+	const version = parseExactVersion(entered);
+	if (entered.trim() !== "" && !version) {
+		ctx.ui.notify("Version must look like 2.1.288", "error");
+		return;
+	}
+	saveCcVersion(version);
+	ctx.ui.notify(
+		version ? `Claude Code version pinned to ${version}` : `Claude Code version follows local claude (${resolveCcVersion()})`,
+		"info",
+	);
+}
+
 export default function (pi: ExtensionAPI): void {
 	const initial = loadConfig();
-	if (initial.length > 0) {
-		console.warn(`[pi-claude-mask] masking ${initial.join(", ")} as claude-cli/${resolveCcVersion()}`);
-		applyProviderScope(pi, initial);
-	}
-
-	pi.on("session_start", (_event, ctx) => {
-		ctx.ui.setStatus("claude-mask", scopeLabel(activeProviders));
-	});
+	if (initial.length > 0) applyProviderScope(pi, initial);
 
 	pi.registerCommand("claude-mask", {
 		description: "Choose which providers use the Claude Code mask",
 		handler: async (_args, ctx) => {
 			const selected = new Set(activeProviders);
 			for (;;) {
-				const providers = anthropicProviderIds(ctx.modelRegistry.getAll());
-				const current = [...selected].sort().join(", ") || "(none)";
+				const on = [...selected].sort();
 				const versionLabel = pinnedCcVersion
 					? `Version: pinned ${pinnedCcVersion}`
 					: `Version: auto (${resolveCcVersion()})`;
+				const providersLabel = `Providers (${on.length})`;
 				const choice = await ctx.ui.select(
-					`Claude mask scope: ${current}\nToggle a provider, then Done. Esc cancels. Other providers stay on Pi's normal client.`,
-					[
-						...providers.map((id) => `${selected.has(id) ? "[x]" : "[ ]"} ${id}`),
-						versionLabel,
-						"Done",
-					],
+					`On: ${on.join(", ") || "(none)"}\nVersion is the local client fingerprint, shared by every selected provider.`,
+					[providersLabel, versionLabel, "Done"],
 				);
 				if (!choice) return;
 				if (choice === "Done") break;
 				if (choice === versionLabel) {
-					const entered = await ctx.ui.input(
-						"Claude Code version. Leave empty to follow the local claude binary.",
-						pinnedCcVersion ?? "",
-					);
-					if (entered === undefined) continue;
-					const version = parseExactVersion(entered);
-					if (entered.trim() !== "" && !version) {
-						ctx.ui.notify("Version must look like 2.1.288", "error");
-						continue;
-					}
-					saveCcVersion(version);
-					ctx.ui.setStatus("claude-mask", scopeLabel(selected));
-					ctx.ui.notify(version ? `Claude Code version pinned to ${version}` : `Claude Code version follows local claude (${resolveCcVersion()})`, "info");
+					await editVersion(ctx);
 					continue;
 				}
-				const id = choice.replace(/^\[[ x]\] /, "");
-				if (!PROVIDER_ID.test(id)) continue;
-				if (selected.has(id)) selected.delete(id);
-				else selected.add(id);
+				await editProviders(ctx, selected);
 			}
 			const next = [...selected].sort();
 			saveProviders(next);
 			applyProviderScope(pi, next);
-			ctx.ui.setStatus("claude-mask", scopeLabel(next));
-			ctx.ui.notify(next.length === 0 ? "Claude mask off" : `Claude mask: ${next.join(", ")}`, "info");
+			ctx.ui.notify(next.length === 0 ? "Mask off" : `Mask: ${next.join(", ")}`, "info");
 		},
 	});
 }
