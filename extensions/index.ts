@@ -37,57 +37,42 @@ const EPHEMERAL = { type: "ephemeral" };
 const PROVIDER_ID = /^[A-Za-z0-9._-]+$/;
 
 const VERSION_RE = /^(\d+\.\d+\.\d+)$/;
+const VERSION_REFRESH_MS = 24 * 60 * 60 * 1000;
 let pinnedCcVersion: string | undefined;
-let versionProbe: { key: string; version: string } | undefined;
-let detectedClaude: { bin: string; resolved: string; version: string } | undefined;
+let autoVersion: { version: string; checkedAt: number } | undefined;
 
 function parseExactVersion(value: string | undefined): string | undefined {
 	const trimmed = value?.trim();
 	return trimmed && VERSION_RE.test(trimmed) ? trimmed : undefined;
 }
 
-/** Follow the local claude install. The official layout is a symlink whose target name is the version. */
-function claudeBinary(): string {
-	if (detectedClaude) {
-		try {
-			const resolved = fs.realpathSync(detectedClaude.bin);
-			if (resolved === detectedClaude.resolved) return detectedClaude.bin;
-		} catch {
-			detectedClaude = undefined;
-		}
-	}
-	return execFileSync("which", ["claude"], { encoding: "utf8", timeout: 2000 }).trim();
-}
-
+/** Read the local claude install once. The official layout names the symlink target with the version. */
 function detectClaudeVersion(): string {
 	try {
-		const bin = claudeBinary();
+		const bin = execFileSync("which", ["claude"], { encoding: "utf8", timeout: 2000 }).trim();
 		const resolved = fs.realpathSync(bin);
-		if (detectedClaude?.resolved === resolved) return detectedClaude.version;
 		const fromName = parseExactVersion(basename(resolved));
-		if (fromName) {
-			detectedClaude = { bin, resolved, version: fromName };
-			return fromName;
-		}
-		const stamp = fs.statSync(resolved).mtimeMs;
-		const key = `${resolved}:${stamp}`;
-		if (versionProbe?.key === key) return versionProbe.version;
+		if (fromName) return fromName;
 		const out = execFileSync(bin, ["--version"], { encoding: "utf8", timeout: 5000 });
 		const found = out.match(/(\d+\.\d+\.\d+)/);
-		if (found) {
-			versionProbe = { key, version: found[1] };
-			detectedClaude = { bin, resolved, version: found[1] };
-			return found[1];
-		}
+		if (found) return found[1];
 	} catch {
-		detectedClaude = undefined;
+		// no local claude binary; keep the last version that passed a gateway check
 	}
 	return FALLBACK_CC_VERSION;
 }
 
+function refreshAutoVersion(): string {
+	const now = Date.now();
+	if (autoVersion && now - autoVersion.checkedAt < VERSION_REFRESH_MS) return autoVersion.version;
+	const version = detectClaudeVersion();
+	autoVersion = { version, checkedAt: now };
+	return version;
+}
+
 function resolveCcVersion(): string {
 	if (pinnedCcVersion) return pinnedCcVersion;
-	return parseExactVersion(process.env.PI_CLAUDE_MASK_CC_VERSION) ?? detectClaudeVersion();
+	return parseExactVersion(process.env.PI_CLAUDE_MASK_CC_VERSION) ?? refreshAutoVersion();
 }
 
 const CC_BETA =
@@ -532,7 +517,10 @@ async function editVersion(ctx: {
 
 export default function (pi: ExtensionAPI): void {
 	const initial = loadConfig();
-	if (initial.length > 0) applyProviderScope(pi, initial);
+	if (initial.length > 0) {
+		applyProviderScope(pi, initial);
+		if (!pinnedCcVersion && !parseExactVersion(process.env.PI_CLAUDE_MASK_CC_VERSION)) refreshAutoVersion();
+	}
 
 	pi.registerCommand("claude-mask", {
 		description: "Choose which providers use the Claude Code mask",

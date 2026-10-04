@@ -58,7 +58,7 @@ Deleting a provider's device ID file invalidates that provider's prompt-cache pr
 
 ## Claude Code Version
 
-By default the extension follows the local `claude` binary. The official install is a symlink whose target name is the version, and that path is read on each request, so upgrading Claude Code does not require an environment variable or a Pi restart.
+By default the extension follows the local `claude` binary. It reads that version when Pi starts, then at most once every 24 hours, not on every request. After you upgrade Claude Code, the next masked request on the following day picks up the new version. No environment variable is required.
 
 To pin a version, choose `Version` on the first `/claude-mask` screen and enter a value such as `2.1.288`. Leave it empty to return to automatic. You can also set `"ccVersion": "2.1.288"` in the config file. `PI_CLAUDE_MASK_CC_VERSION` still works, but only when `ccVersion` is unset.
 
