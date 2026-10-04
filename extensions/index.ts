@@ -36,27 +36,52 @@ const PI_PREFIX = "mcp__pi__";
 const EPHEMERAL = { type: "ephemeral" };
 const PROVIDER_ID = /^[A-Za-z0-9._-]+$/;
 
-function claudeCodeVersion(): string {
-	const fromEnv = process.env.PI_CLAUDE_MASK_CC_VERSION?.trim();
-	if (fromEnv && /^\d+\.\d+\.\d+/.test(fromEnv)) return fromEnv;
+const VERSION_RE = /^(\d+\.\d+\.\d+)$/;
+let pinnedCcVersion: string | undefined;
+let versionProbe: { key: string; version: string } | undefined;
+
+function parseExactVersion(value: string | undefined): string | undefined {
+	const trimmed = value?.trim();
+	return trimmed && VERSION_RE.test(trimmed) ? trimmed : undefined;
+}
+
+/** Follow the local claude install. The official layout is a symlink whose target name is the version. */
+function detectClaudeVersion(): string {
 	try {
 		const which = execFileSync("which", ["claude"], { encoding: "utf8", timeout: 2000 }).trim();
-		const resolved = basename(fs.realpathSync(which));
-		if (/^\d+\.\d+\.\d+$/.test(resolved)) return resolved;
+		const resolved = fs.realpathSync(which);
+		const fromName = parseExactVersion(basename(resolved));
+		if (fromName) return fromName;
+		const stamp = fs.statSync(resolved).mtimeMs;
+		const key = `${resolved}:${stamp}`;
+		if (versionProbe?.key === key) return versionProbe.version;
+		const out = execFileSync(which, ["--version"], { encoding: "utf8", timeout: 5000 });
+		const found = out.match(/(\d+\.\d+\.\d+)/);
+		if (found) {
+			versionProbe = { key, version: found[1] };
+			return found[1];
+		}
 	} catch {
-		// no local claude binary; the fallback is the last version that passed
+		// no local claude binary; the fallback is the last version that passed a gateway check
 	}
 	return FALLBACK_CC_VERSION;
 }
 
-const CC_VERSION = claudeCodeVersion();
+function resolveCcVersion(): string {
+	if (pinnedCcVersion) return pinnedCcVersion;
+	return parseExactVersion(process.env.PI_CLAUDE_MASK_CC_VERSION) ?? detectClaudeVersion();
+}
 
-const BASE_HEADERS: Record<string, string> = {
-	"User-Agent": `claude-cli/${CC_VERSION} (external, sdk-cli)`,
-	"x-app": "cli",
-	"anthropic-beta":
-		"claude-code-20250219,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,effort-2025-11-24,fallback-credit-2026-06-01",
-};
+const CC_BETA =
+	"claude-code-20250219,interleaved-thinking-2025-05-14,thinking-token-count-2026-05-13,context-management-2025-06-27,prompt-caching-scope-2026-01-05,mid-conversation-system-2026-04-07,per-turn-control-2026-07-01,mid-conversation-tool-changes-2026-07-01,advisor-tool-2026-03-01,advanced-tool-use-2025-11-20,effort-2025-11-24,fallback-credit-2026-06-01";
+
+function maskHeaders(): Record<string, string> {
+	return {
+		"User-Agent": `claude-cli/${resolveCcVersion()} (external, sdk-cli)`,
+		"x-app": "cli",
+		"anthropic-beta": CC_BETA,
+	};
+}
 
 const CONFIG_PATH = () => join(getAgentDir(), "pi-claude-mask.json");
 const DEFAULT_RETRY_PATTERNS = ["rate limit", "too many requests", "overloaded", "\\b429\\b", "\\b529\\b"];
@@ -95,7 +120,8 @@ function parseProviders(raw: unknown, path: string): string[] {
 function loadConfig(): string[] {
 	const path = CONFIG_PATH();
 	try {
-		const raw = JSON.parse(fs.readFileSync(path, "utf8")) as { retryPatterns?: unknown };
+		const raw = JSON.parse(fs.readFileSync(path, "utf8")) as { retryPatterns?: unknown; ccVersion?: unknown };
+		pinnedCcVersion = parseExactVersion(typeof raw.ccVersion === "string" ? raw.ccVersion : undefined);
 		const configured = raw.retryPatterns;
 		retryPatterns = compilePatterns(
 			Array.isArray(configured)
@@ -105,6 +131,7 @@ function loadConfig(): string[] {
 		return parseProviders(raw, path);
 	} catch (error) {
 		const code = (error as NodeJS.ErrnoException).code;
+		pinnedCcVersion = undefined;
 		retryPatterns = compilePatterns(DEFAULT_RETRY_PATTERNS);
 		console.warn(
 			code === "ENOENT"
@@ -124,6 +151,21 @@ function saveProviders(providers: string[]): void {
 		existing = {};
 	}
 	existing.providers = providers;
+	fs.writeFileSync(path, `${JSON.stringify(existing, null, 2)}\n`);
+}
+
+function saveCcVersion(version: string | undefined): void {
+	const path = CONFIG_PATH();
+	let existing: Record<string, unknown> = {};
+	try {
+		existing = JSON.parse(fs.readFileSync(path, "utf8"));
+	} catch {
+		existing = {};
+	}
+	if (version) existing.ccVersion = version;
+	else delete existing.ccVersion;
+	pinnedCcVersion = version;
+	fs.mkdirSync(dirname(path), { recursive: true });
 	fs.writeFileSync(path, `${JSON.stringify(existing, null, 2)}\n`);
 }
 
@@ -330,7 +372,7 @@ function streamAsClaudeCode(
 				...options,
 				fetch: nodeHttpsFetch as any,
 				headers: {
-					...BASE_HEADERS,
+					...maskHeaders(),
 					"x-claude-code-session-id": sessionId,
 					...options?.headers,
 				},
@@ -437,7 +479,7 @@ function anthropicProviderIds(models: readonly { provider: string; api: string }
 export default function (pi: ExtensionAPI): void {
 	const initial = loadConfig();
 	if (initial.length > 0) {
-		console.warn(`[pi-claude-mask] masking ${initial.join(", ")} as claude-cli/${CC_VERSION}`);
+		console.warn(`[pi-claude-mask] masking ${initial.join(", ")} as claude-cli/${resolveCcVersion()}`);
 		applyProviderScope(pi, initial);
 	}
 
@@ -452,15 +494,35 @@ export default function (pi: ExtensionAPI): void {
 			for (;;) {
 				const providers = anthropicProviderIds(ctx.modelRegistry.getAll());
 				const current = [...selected].sort().join(", ") || "(none)";
+				const versionLabel = pinnedCcVersion
+					? `Version: pinned ${pinnedCcVersion}`
+					: `Version: auto (${resolveCcVersion()})`;
 				const choice = await ctx.ui.select(
 					`Claude mask scope: ${current}\nToggle a provider, then Done. Esc cancels. Other providers stay on Pi's normal client.`,
 					[
 						...providers.map((id) => `${selected.has(id) ? "[x]" : "[ ]"} ${id}`),
+						versionLabel,
 						"Done",
 					],
 				);
 				if (!choice) return;
 				if (choice === "Done") break;
+				if (choice === versionLabel) {
+					const entered = await ctx.ui.input(
+						"Claude Code version. Leave empty to follow the local claude binary.",
+						pinnedCcVersion ?? "",
+					);
+					if (entered === undefined) continue;
+					const version = parseExactVersion(entered);
+					if (entered.trim() !== "" && !version) {
+						ctx.ui.notify("Version must look like 2.1.288", "error");
+						continue;
+					}
+					saveCcVersion(version);
+					ctx.ui.setStatus("claude-mask", scopeLabel(selected));
+					ctx.ui.notify(version ? `Claude Code version pinned to ${version}` : `Claude Code version follows local claude (${resolveCcVersion()})`, "info");
+					continue;
+				}
 				const id = choice.replace(/^\[[ x]\] /, "");
 				if (!PROVIDER_ID.test(id)) continue;
 				if (selected.has(id)) selected.delete(id);

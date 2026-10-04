@@ -60,11 +60,9 @@ Deleting a provider's device ID file invalidates that provider's prompt-cache pr
 
 ## Claude Code Version
 
-The User-Agent version defaults to whatever the local `claude` binary reports. To override:
+By default the extension follows the local `claude` binary. The official install is a symlink whose target name is the version, and that path is read on each request, so upgrading Claude Code does not require an environment variable or a Pi restart.
 
-```bash
-export PI_CLAUDE_MASK_CC_VERSION=2.1.288
-```
+To pin a version, choose `Version` in `/claude-mask` and enter a value such as `2.1.288`. Leave it empty to return to automatic. You can also set `"ccVersion": "2.1.288"` in the config file. `PI_CLAUDE_MASK_CC_VERSION` still works, but only when `ccVersion` is unset.
 
 ## Auto-Retry
 

@@ -60,11 +60,9 @@ pi install git:github.com/iluluyu/pi-claude-mask
 
 ## Claude Code 版本号
 
-User-Agent 中的版本号默认跟随本地 `claude` 二进制。如需覆盖：
+默认自动跟随本机 `claude`。官方安装是一个指向版本目录的符号链接，扩展每次请求都会读它，所以升级 Claude Code 后不用改环境变量，也不用重启 Pi。
 
-```bash
-export PI_CLAUDE_MASK_CC_VERSION=2.1.288
-```
+要固定版本，在 `/claude-mask` 里选 `Version`，输入 `2.1.288` 这样的号。留空则回到自动。也可以在配置里写 `"ccVersion": "2.1.288"`。`PI_CLAUDE_MASK_CC_VERSION` 仍可用，但只在没有 `ccVersion` 时生效。
 
 ## 自动重试
 
