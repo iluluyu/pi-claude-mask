@@ -1,0 +1,31 @@
+{
+	"name": "pi-claude-mask",
+	"version": "1.0.0",
+	"description": "Disguise selected Pi providers as the local Claude Code client.",
+	"type": "module",
+	"license": "MIT",
+	"author": "iluluyu",
+	"repository": {
+		"type": "git",
+		"url": "git+https://github.com/iluluyu/pi-claude-mask.git"
+	},
+	"keywords": [
+		"pi-package",
+		"pi-extension",
+		"pi-coding-agent"
+	],
+	"files": [
+		"extensions",
+		"README.md",
+		"LICENSE"
+	],
+	"pi": {
+		"extensions": [
+			"./extensions/index.ts"
+		]
+	},
+	"peerDependencies": {
+		"@earendil-works/pi-ai": "*",
+		"@earendil-works/pi-coding-agent": "*"
+	}
+}
