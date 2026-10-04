@@ -1,4 +1,4 @@
-<div align="right"><a href="./README.en.md">English</a></div>
+<div align="right"><a href="./README.md">中文</a> | <a href="./README.en.md">English</a></div>
 
 # pi-claude-mask
 
